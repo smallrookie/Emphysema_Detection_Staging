@@ -16,7 +16,6 @@ class EmphysemaGenerated(RandomizableTransform, MapTransform):
     def __init__(
         self,
         keys: KeysCollection,
-        ep_prior_file: str = None,
         prob: float = 0.1,
         thr: float = 0.3,
         size: tuple = (384, 384),
@@ -29,14 +28,6 @@ class EmphysemaGenerated(RandomizableTransform, MapTransform):
         self.seed = seed
         random.seed(self.seed)
         np.random.seed(self.seed)
-
-        if ep_prior_file is not None:
-            ep_prior_data = np.load(ep_prior_file, allow_pickle=True)
-            self.ep_pixel_val = ep_prior_data["values"]
-            self.ep_pixel_val_prob = ep_prior_data["prob"]
-        else:
-            self.ep_pixel_val = None
-            self.ep_pixel_val_prob = None
 
         self.size = size
         self.thr = thr
