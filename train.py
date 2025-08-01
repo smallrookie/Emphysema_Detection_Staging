@@ -145,8 +145,6 @@ def main():
     if rank == 0:
         log_config_details(args)
 
-    best_auroc_metric = -1
-    val_interval = args.val_interval
     for epoch in range(args.max_epochs):
         model.train()
         for i_batch, batch_data in enumerate(tr_dl):
