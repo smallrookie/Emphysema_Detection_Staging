@@ -114,7 +114,7 @@ def main():
         pin_memory=True,
     )
 
-    model = SimpleNet(
+    model = EDLNet(
         n_channels=1,
         n_classes=2,
         alpha=args.alpha,
