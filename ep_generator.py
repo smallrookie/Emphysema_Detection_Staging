@@ -79,13 +79,8 @@ class EmphysemaGenerated(RandomizableTransform, MapTransform):
         worley_noise = self.rot(image=worley_noise)
 
         worley_thr = worley_noise > self.thr
-
-        if self.ep_pixel_val is not None and self.ep_pixel_val_prob is not None:
-            ep_img = np.random.choice(
-                self.ep_pixel_val, size=self.size, p=self.ep_pixel_val_prob
-            )
-        else:
-            ep_img = np.random.randint(-1000, -951, size=self.size)
+        
+        ep_img = np.random.randint(-1000, -951, size=self.size)
 
         img_thr = ep_img * worley_thr
         ep_mask = (mask != 0) & (img < -600)
