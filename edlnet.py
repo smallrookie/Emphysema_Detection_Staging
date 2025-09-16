@@ -1,6 +1,3 @@
-import os
-import sys
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -9,39 +6,70 @@ from scrb import SCRB
 
 
 class DoubleConv(nn.Module):
-    """(convolution => [BN] => ReLU) * 2"""
+    """(convolution => [BN] => ReLU) * 2
+    
+    A double convolution block that applies two convolution-BN-ReLU sequences.
+    This is a common building block in U-Net architectures.
+    """
 
     def __init__(self, in_channels, out_channels, mid_channels=None):
+        """Initialize the double convolution block.
+        
+        Args:
+            in_channels (int): Number of input channels
+            out_channels (int): Number of output channels
+            mid_channels (int, optional): Number of intermediate channels. Defaults to out_channels.
+        """
         super().__init__()
         if not mid_channels:
             mid_channels = out_channels
         self.double_conv = nn.Sequential(
             nn.Conv2d(in_channels, mid_channels, kernel_size=3, padding=1, bias=False),
             nn.BatchNorm2d(mid_channels),
-            nn.ReLU(inplace=True),
+            nn.ReLU(inplace=False),
             nn.Conv2d(mid_channels, out_channels, kernel_size=3, padding=1, bias=False),
             nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True),
+            nn.ReLU(inplace=False),
         )
 
     def forward(self, x):
+        """Forward pass through the double convolution block.
+        
+        Args:
+            x (torch.Tensor): Input tensor
+            
+        Returns:
+            torch.Tensor: Output tensor after double convolution
+        """
         return self.double_conv(x)
 
 
 class Down(nn.Module):
-    """Downscaling with maxpool then double conv"""
+    """Downscaling with maxpool then double conv
+    
+    A downsampling block that first applies max pooling and then a double convolution.
+    Optionally uses SCRB (Scale-wise Convolutional Residual Block) for enhanced feature extraction.
+    """
 
     def __init__(self, in_channels, out_channels, alpha=0.5, scrb=False):
+        """Initialize the downsampling block.
+        
+        Args:
+            in_channels (int): Number of input channels
+            out_channels (int): Number of output channels
+            alpha (float): Parameter for SCRB block
+            scrb (bool): Whether to use SCRB block
+        """
         super().__init__()
         if scrb:
             self.block = nn.Sequential(
                 nn.MaxPool2d(2),
-                SCRConv(op_channel=in_channels, alpha=alpha),
+                SCRB(op_channel=in_channels, alpha=alpha),
                 nn.BatchNorm2d(in_channels),
-                nn.ReLU(inplace=True),
+                nn.ReLU(inplace=False),
                 nn.Conv2d(in_channels, out_channels, 1),
                 nn.BatchNorm2d(out_channels),
-                nn.ReLU(inplace=True),
+                nn.ReLU(inplace=False),
             )
         else:
             self.block = nn.Sequential(
@@ -50,13 +78,32 @@ class Down(nn.Module):
             )
 
     def forward(self, x):
+        """Forward pass through the downsampling block.
+        
+        Args:
+            x (torch.Tensor): Input tensor
+            
+        Returns:
+            torch.Tensor: Downsampled and processed tensor
+        """
         return self.block(x)
 
 
 class Up(nn.Module):
-    """Upscaling then double conv"""
+    """Upscaling then double conv
+    
+    An upsampling block that first upscales the input and then applies double convolution.
+    Implements skip connections from the encoder part.
+    """
 
     def __init__(self, in_channels, out_channels, use_gate=False):
+        """Initialize the upsampling block.
+        
+        Args:
+            in_channels (int): Number of input channels
+            out_channels (int): Number of output channels
+            use_gate (bool): Whether to use gated attention mechanism
+        """
         super().__init__()
 
         # self.up = nn.Upsample(scale_factor=2, mode="bilinear", align_corners=True)
@@ -73,6 +120,15 @@ class Up(nn.Module):
         self.conv = DoubleConv(in_channels, out_channels, in_channels)
 
     def forward(self, x1, x2):
+        """Forward pass through the upsampling block.
+        
+        Args:
+            x1 (torch.Tensor): Input from previous layer
+            x2 (torch.Tensor): Skip connection from encoder
+            
+        Returns:
+            torch.Tensor: Upsampled and concatenated tensor
+        """
         x1 = self.up(x1)
 
         diffY = x2.size()[2] - x1.size()[2]
@@ -91,15 +147,40 @@ class Up(nn.Module):
 
 
 class OutConv(nn.Module):
+    """Output convolution layer
+    
+    A simple convolution layer that maps the final feature map to the desired number of output channels.
+    """
+    
     def __init__(self, in_channels, out_channels):
+        """Initialize the output convolution layer.
+        
+        Args:
+            in_channels (int): Number of input channels
+            out_channels (int): Number of output channels (usually number of classes)
+        """
         super(OutConv, self).__init__()
         self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=1)
 
     def forward(self, x):
+        """Forward pass through the output convolution layer.
+        
+        Args:
+            x (torch.Tensor): Input tensor
+            
+        Returns:
+            torch.Tensor: Output tensor with desired number of channels
+        """
         return self.conv(x)
 
 
 class EDLNet(nn.Module):
+    """EDLNet: Emphysema Detection and Localization Network
+    
+    A U-Net based architecture for emphysema detection that performs both 
+    image reconstruction and segmentation simultaneously.
+    """
+    
     def __init__(
         self,
         n_channels=1,
@@ -108,6 +189,15 @@ class EDLNet(nn.Module):
         use_gate=False,
         use_scrb=False,
     ):
+        """Initialize the EDLNet model.
+        
+        Args:
+            n_channels (int): Number of input channels (default: 1 for grayscale)
+            n_classes (int): Number of output classes (default: 1)
+            alpha (float): Parameter for SCRB blocks
+            use_gate (bool): Whether to use gated attention mechanism
+            use_scrb (bool): Whether to use SCRB blocks in the network
+        """
         super(EDLNet, self).__init__()
         self.use_gate = use_gate
 
@@ -132,6 +222,11 @@ class EDLNet(nn.Module):
 
     @staticmethod
     def weights_init(m):
+        """Initialize network weights.
+        
+        Args:
+            m (nn.Module): Module to initialize
+        """
         if isinstance(m, nn.Conv2d):
             nn.init.normal_(m.weight.data, 0.0, 0.02)
         elif isinstance(m, nn.BatchNorm2d):
@@ -144,6 +239,14 @@ class EDLNet(nn.Module):
 
 
     def forward(self, x0):
+        """Forward pass through the entire network.
+        
+        Args:
+            x0 (torch.Tensor): Input tensor (batch_size, channels, height, width)
+            
+        Returns:
+            torch.Tensor: Reconstructed image tensor
+        """
         x1 = self.inc(x0)
 
         x2 = self.down1(x1)

@@ -1,10 +1,28 @@
+"""
+SCRB: Scale-wise Convolutional Residual Block
+Implementation of a scale-wise convolutional residual block for feature extraction.
+"""
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 
 class SCM(nn.Module):
+    """Scale-wise Convolution Module
+    
+    A module that performs multi-scale convolution operations using dilated convolutions
+    to capture features at different scales.
+    """
+
     def __init__(self, in_ch, ms_kernel=1, dilation=1):
+        """Initialize the Scale-wise Convolution Module.
+        
+        Args:
+            in_ch (int): Number of input channels
+            ms_kernel (int): Kernel size for multi-scale convolutions
+            dilation (int): Dilation factor for dilated convolutions
+        """
         super(SCM, self).__init__()
         self.pad = ms_kernel + dilation
         self.border_input = ms_kernel + 2 * dilation + 1
@@ -38,6 +56,14 @@ class SCM(nn.Module):
         self.act = nn.GELU()
 
     def forward(self, x_in):
+        """Forward pass through the scale-wise convolution module.
+        
+        Args:
+            x_in (torch.Tensor): Input tensor
+            
+        Returns:
+            torch.Tensor: Output tensor after multi-scale convolution
+        """
         x = F.pad(x_in, (self.pad, self.pad, self.pad, self.pad), "constant", 0)
         x1 = self.dwconv1(x[:, :, : -self.border_input, : -self.border_input])
         x2 = self.dwconv2(x[:, :, self.border_input :, : -self.border_input])
@@ -48,6 +74,12 @@ class SCM(nn.Module):
 
 
 class CRM(nn.Module):
+    """Channel-wise Residual Module
+    
+    A module that performs channel-wise residual operations to enhance feature representation
+    by combining global and local features with attention mechanisms.
+    """
+
     def __init__(
         self,
         op_channel: int,
@@ -56,6 +88,15 @@ class CRM(nn.Module):
         group_size: int = 2,
         group_kernel_size: int = 3,
     ):
+        """Initialize the Channel-wise Residual Module.
+        
+        Args:
+            op_channel (int): Number of output channels
+            alpha (float): Ratio for splitting channels
+            mlp_ratio (int): Ratio for expanding channels in MLP
+            group_size (int): Group size for grouped convolutions
+            group_kernel_size (int): Kernel size for grouped convolutions
+        """
         super(CRM, self).__init__()
         self.up_channel = up_channel = int(alpha * op_channel)
         self.low_channel = low_channel = op_channel - up_channel
@@ -97,6 +138,14 @@ class CRM(nn.Module):
         self.advavg = nn.AdaptiveAvgPool2d(1)
 
     def forward(self, x):
+        """Forward pass through the channel-wise residual module.
+        
+        Args:
+            x (torch.Tensor): Input tensor
+            
+        Returns:
+            torch.Tensor: Output tensor after channel-wise residual operations
+        """
         up, low = torch.split(x, [self.up_channel, self.low_channel], dim=1)
         up = self.squeeze1(up)
         low = self.squeeze2(low)
@@ -111,6 +160,12 @@ class CRM(nn.Module):
 
 
 class SCRB(nn.Module):
+    """Scale-wise Convolutional Residual Block
+    
+    Combines Scale-wise Convolution Module (SCM) and Channel-wise Residual Module (CRM)
+    to extract enhanced features for medical image processing.
+    """
+
     def __init__(
         self,
         op_channel: int,
@@ -119,6 +174,15 @@ class SCRB(nn.Module):
         alpha: float = 1 / 2,
         mlp_ratio: int = 2,
     ):
+        """Initialize the Scale-wise Convolutional Residual Block.
+        
+        Args:
+            op_channel (int): Number of output channels
+            ms_kernel (int): Kernel size for multi-scale convolutions
+            dilation (int): Dilation factor for dilated convolutions
+            alpha (float): Ratio for splitting channels in CRM
+            mlp_ratio (int): Ratio for expanding channels in CRM
+        """
         super(SCRB, self).__init__()
         self.scm = SCM(
             in_ch=op_channel,
@@ -132,6 +196,14 @@ class SCRB(nn.Module):
         )
 
     def forward(self, x):
+        """Forward pass through the scale-wise convolutional residual block.
+        
+        Args:
+            x (torch.Tensor): Input tensor
+            
+        Returns:
+            torch.Tensor: Output tensor after SCRB processing
+        """
         x = self.scm(x)
         x = self.crm(x)
         return x

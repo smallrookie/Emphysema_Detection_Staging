@@ -1,7 +1,6 @@
 import argparse
 import logging
 import os
-import sys
 
 from datetime import datetime, timedelta
 
@@ -14,7 +13,6 @@ from monai.data import Dataset, list_data_collate, DistributedSampler
 from monai.transforms import Compose
 from torch.utils.data import DataLoader
 from torch.nn.parallel import DistributedDataParallel
-from torchmetrics import AUROC
 
 from ep_generator import EmphysemaGenerated
 from utils import config_cpu_num, set_random_seed, setup_logging, log_config_details
@@ -33,26 +31,15 @@ parser.add_argument("--max_epochs", type=int, default=100)
 parser.add_argument("--warmup_epochs", type=int, default=10)
 parser.add_argument("--input_size", default=[384, 384])
 parser.add_argument("--prob", type=float, default=0.9)
+parser.add_argument("--prior_type", type=str, default="guassian")
 parser.add_argument("--thr", type=float, default=0.3)
 parser.add_argument("--gate", action="store_true", default=False)
 parser.add_argument("--fup", action="store_true", default=False)
 parser.add_argument("--scrb", action="store_true", default=False)
 parser.add_argument("--alpha", type=float, default=0.5)
-parser.add_argument(
-    "--base_path",
-    type=str,
-    default=None,
-)
-parser.add_argument(
-    "--tr_path",
-    type=str,
-    default=None,
-)
-parser.add_argument(
-    "--save",
-    type=str,
-    default=None,
-)
+parser.add_argument("--base_path", type=str, default=None)
+parser.add_argument("--tr_path", type=str, default=None)
+parser.add_argument("--save", type=str, default=None)
 
 args = parser.parse_args()
 
@@ -81,9 +68,10 @@ config_cpu_num(args.cpu_num)
 def main():
     setup_logging("training.log", save_path)
 
+    # Load training data file paths
     tr_files = np.load(args.tr_path, allow_pickle=True)["arr_0"]
-    val_files = np.load(args.val_path, allow_pickle=True)["arr_0"]
-
+    
+    # Define training transforms
     tr_trans = Compose(
         [
             monai.transforms.LoadImaged(keys=["img", "seg", "mask"], image_only=True),
@@ -96,12 +84,14 @@ def main():
             EmphysemaGenerated(
                 keys=["img", "seg", "mask"],
                 prob=args.prob,
+                type=args.prior_type,
                 thr=args.thr,
                 seed=args.seed,
             ),
         ]
     )
 
+    # Create training dataset and dataloader
     tr_ds = Dataset(data=tr_files, transform=tr_trans)
     tr_sampler = DistributedSampler(dataset=tr_ds, even_divisible=True, shuffle=True)
     tr_dl = DataLoader(
@@ -112,8 +102,10 @@ def main():
         collate_fn=list_data_collate,
         sampler=tr_sampler,
         pin_memory=True,
+        drop_last=True,
     )
 
+    # Initialize model
     model = EDLNet(
         n_channels=1,
         n_classes=2,
@@ -121,37 +113,46 @@ def main():
         use_gate=args.gate,
         use_scrb=args.scrb,
     ).to(device)
+    model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
 
+    # Wrap model for distributed training
     model = DistributedDataParallel(
         model,
         device_ids=[device_id],
         find_unused_parameters=args.fup,
     )
 
+    # Define loss function
     mse_loss = torch.nn.MSELoss().to(device)
 
+    # Initialize optimizer
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=args.lr,
         weight_decay=5e-5,
     )
 
+    # Initialize learning rate scheduler
     scheduler = LinearWarmupCosineAnnealingLR(
         optimizer=optimizer,
         warmup_epochs=args.warmup_epochs,
         max_epochs=args.max_epochs,
     )
 
+    # Log configuration details on rank 0
     if rank == 0:
         log_config_details(args)
 
+    # Training loop
     for epoch in range(args.max_epochs):
         model.train()
         for i_batch, batch_data in enumerate(tr_dl):
-            imgs = batch_data["img"].to(device)  
-            inputs = batch_data["aug_img"].to(device)  
-            labels = batch_data["seg"].to(device).to(torch.bfloat16)  
+            # Load batch data
+            imgs = batch_data["img"].to(device)
+            inputs = batch_data["aug_img"].to(device)
+            labels = batch_data["seg"].to(device).to(torch.bfloat16)
 
+            # Reset gradients
             optimizer.zero_grad()
 
             with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
@@ -166,9 +167,11 @@ def main():
 
                 total_loss = recon_loss + seg_loss
 
+            # Backward pass
             total_loss.backward()
             optimizer.step()
 
+            # Log training progress on rank 0
             if rank == 0:
                 logging.info(
                     f"epoch: {epoch + 1}/{args.max_epochs}, "
@@ -178,13 +181,17 @@ def main():
                     f"seg_loss: {seg_loss:.4f}"
                 )
 
+        # Update learning rate
         scheduler.step()
 
+        # Save model checkpoint on rank 0
         if rank == 0:
             state = {"model_state_dict": model.module.state_dict()}
-            torch.save(state, os.path.join(save_path, f"auroc_model.pth"))
+            torch.save(state, os.path.join(save_path, f"latest_model.pth"))
 
+    # Clean up distributed training
     dist.destroy_process_group()
 
 
+# Run main function
 main()

@@ -10,18 +10,37 @@ from monai.config.type_definitions import NdarrayOrTensor
 from monai.config import KeysCollection
 from monai.transforms.transform import MapTransform, RandomizableTransform
 from scipy.spatial import cKDTree
+from scripy.stats import truncnorm
 
 
 class EmphysemaGenerated(RandomizableTransform, MapTransform):
+    """Emphysema Generation Transform
+    
+    A MONAI transform that generates synthetic emphysema patterns in lung CT scans
+    using Worley noise and truncated Gaussian distributions.
+    """
+
     def __init__(
         self,
         keys: KeysCollection,
         prob: float = 0.1,
+        type: str = "uniform",
         thr: float = 0.3,
         size: tuple = (384, 384),
         seed: int = 0,
         allow_missing_keys: bool = False,
     ) -> None:
+        """Initialize the emphysema generation transform.
+        
+        Args:
+            keys (KeysCollection): Keys to apply the transform to
+            prob (float): Probability of applying the transform
+            type (str): Type of noise distribution ("uniform" or "guassian")
+            thr (float): Threshold for emphysema pattern generation
+            size (tuple): Size of the input images
+            seed (int): Random seed for reproducibility
+            allow_missing_keys (bool): Whether to allow missing keys in the data dictionary
+        """
         MapTransform.__init__(self, keys, allow_missing_keys)
         RandomizableTransform.__init__(self, prob)
 
@@ -29,12 +48,19 @@ class EmphysemaGenerated(RandomizableTransform, MapTransform):
         random.seed(self.seed)
         np.random.seed(self.seed)
 
+        self.type = type
+
         self.size = size
         self.thr = thr
         self.transform = self._get_transform()
         self.rot = iaa.Sequential([iaa.Affine(rotate=(-90, 90))])
 
     def _get_transform(self):
+        """Get the base transform pipeline.
+        
+        Returns:
+            Compose: MONAI transform pipeline
+        """
         base_transforms = [
             monai.transforms.EnsureChannelFirstd(
                 keys=["img", "aug_img", "seg"], channel_dim="no_channel"
@@ -56,6 +82,15 @@ class EmphysemaGenerated(RandomizableTransform, MapTransform):
         return monai.transforms.Compose(base_transforms)
 
     def generate_emphysema(self, image, mask):
+        """Generate synthetic emphysema patterns in the input image.
+        
+        Args:
+            image: Input CT image
+            mask: Lung mask
+            
+        Returns:
+            tuple: Augmented image and emphysema mask
+        """
         img = image.get_array()
         mask = mask.get_array()
 
@@ -71,7 +106,19 @@ class EmphysemaGenerated(RandomizableTransform, MapTransform):
 
         worley_thr = worley_noise > self.thr
         
-        ep_img = np.random.randint(-1000, -951, size=self.size)
+        if self.type == "uniform":
+            ep_img = np.random.randint(-1000, -951, size=self.size)
+        elif self.type == "guassian":
+            a = -1000
+            b = -951
+            mean = -975
+            std = 5
+            a_, b_ = (a - mean) / std, (b - mean) / std
+            trunc_gauss = truncnorm(a_, b_, loc=mean, scale=std)
+            ep_img = trunc_gauss.rvs(self.size).astype(np.int32)
+        else:
+            raise ValueError("Unknown prior type")
+
 
         img_thr = ep_img * worley_thr
         ep_mask = (mask != 0) & (img < -600)
@@ -86,6 +133,15 @@ class EmphysemaGenerated(RandomizableTransform, MapTransform):
         return aug_img_tensor, ep_mask_tensor
 
     def rand_worley_2d_np(self, shape, num_points):
+        """Generate 2D Worley noise.
+        
+        Args:
+            shape (tuple): Shape of the output noise
+            num_points (int): Number of random points to generate
+            
+        Returns:
+            np.ndarray: Generated Worley noise
+        """
         height, width = shape
         points = np.random.rand(num_points, 2) * [width, height]
         tree = cKDTree(points)
@@ -102,6 +158,14 @@ class EmphysemaGenerated(RandomizableTransform, MapTransform):
     def __call__(
         self, data: Mapping[Hashable, NdarrayOrTensor]
     ) -> Dict[Hashable, NdarrayOrTensor]:
+        """Apply the emphysema generation transform.
+        
+        Args:
+            data (Mapping): Input data dictionary
+            
+        Returns:
+            Dict: Transformed data dictionary
+        """
         data_dict = dict(data)
         self.randomize(None)
 
