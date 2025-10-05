@@ -21,7 +21,7 @@ python train.py --gate --fup --scrb --tr_path your_dataset_path --save your_save
 
 ## Datasets
 
-[Dataset C (INSPECT)](https://som-shahlab.github.io/inspect-website) and [D (CT-RATE)](https://huggingface.co/datasets/ibrahimhamamci/CT-RATE) are accessible online. The full emphysema annotations used in this work are not publicly available; instead, we provide partial annotations as illustrative examples, available at: [Google Drive](https://drive.google.com/drive/folders/1oB5nJVe1-iPJPFQ_1rXGxYWbqktwXlXs?usp=drive_link).
+[Dataset C (INSPECT)](https://som-shahlab.github.io/inspect-website) and [D (CT-RATE)](https://huggingface.co/datasets/ibrahimhamamci/CT-RATE) are accessible online. The full emphysema annotations used in this work are not publicly available; instead, we provide partial annotations as illustrative examples, available at [Zenodo](https://doi.org/10.5281/zenodo.17271375).
 
 ## Contact
 For questions or collaborations:
