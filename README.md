@@ -1,5 +1,7 @@
 # Self-Supervised Anomaly Detection and Staging for CT Emphysema
 
+![](img/fig1.png)
+
 ## Abstract
 Emphysema, a diffuse and heterogeneous phenotype of chronic obstructive pulmonary disease (COPD), carries substantial morbidity and elevates lung cancer risk. CT facilitates detection and progression assessment, yet existing deep learning methods rely on large-scale annotated datasets. Unsupervised anomaly detection (UAD) methods offer an alternative but struggle with general synthetic anomalies and weak emphysema semantics. In this study, we propose a self-supervised framework trained exclusively on non-emphysema CT scans, using synthetically generated lesions with emphysema-inspired morphology to guide pixel-level anomaly modeling. We introduce EDLNet, an encoder-decoder architecture with spatial-channel refinement and adaptive feature fusion, and we apply an unsupervised manner for emphysema staging. Multi-center evaluations show that our framework outperforms existing UAD approaches in detection and localization, while achieving a mean staging accuracy of 93.13% and a macro AUROC of 99.08%. These results demonstrate the potential of annotation-free emphysema modeling for clinical application.
 
